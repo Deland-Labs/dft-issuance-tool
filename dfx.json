@@ -1,0 +1,38 @@
+{
+  "canisters": {
+    "graphql": {
+      "type": "custom",
+      "build": [
+        "cargo build --target wasm32-unknown-unknown --package graphql --release",
+        "ic-cdk-optimizer target/wasm32-unknown-unknown/release/graphql.wasm -o target/wasm32-unknown-unknown/release/graphql_opt.wasm"
+      ],
+      "candid": "src/graphql/src/graphql.did",
+      "wasm": "target/wasm32-unknown-unknown/release/graphql_opt.wasm"
+    },
+    "issuanceTool": {
+      "type": "custom",
+      "build": [
+        "cargo build --target wasm32-unknown-unknown --package  issuance_tool --release",
+        "ic-cdk-optimizer target/wasm32-unknown-unknown/release/issuance_tool.wasm -o target/wasm32-unknown-unknown/release/issuance_tool_opt.wasm"
+      ],
+      "candid": "src/issuance_tool/src/tool.did",
+      "wasm": "target/wasm32-unknown-unknown/release/issuance_tool_opt.wasm",
+      "dependencies": [
+        "graphql"
+      ]
+    }
+  },
+  "defaults": {
+    "build": {
+      "args": "",
+      "packtool": ""
+    }
+  },
+  "networks": {
+    "local": {
+      "bind": "127.0.0.1:8000",
+      "type": "ephemeral"
+    }
+  },
+  "version": 1
+}

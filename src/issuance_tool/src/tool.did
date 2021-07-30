@@ -1,0 +1,9 @@
+type TokenStoreWASMArgs = record {
+  wasm_module: vec nat8;
+}
+service:{
+  initialize: ()-> (bool);
+  uploadTokenWasm: (args:TokenStoreWASMArgs)->();
+  issueToken: (args:TokenStoreWASMArgs)->();
+  graphql_query: (text, text) -> (text) query;
+}

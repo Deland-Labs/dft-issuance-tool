@@ -1,0 +1,16 @@
+type SudographSettings {
+  exportGeneratedInitFunction: false
+  exportGeneratedMutationFunction: false
+  exportGeneratedPostUpgradeFunction: false
+}
+
+type TokenInfo {
+  id: ID!
+  token_id:String!
+  name:String!
+  symbol:String!
+  decimals: Int!
+  total_supply: String!
+  fee: String!
+  timestamp: String!
+}
