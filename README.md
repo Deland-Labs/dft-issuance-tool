@@ -9,11 +9,11 @@
   
 ### Why do we develop this tool？
 
-> We have released a [draft standard for dft](https://github.com/ICPDeland/dfinity-fungible-token-standard), this tool is used to support dft issuance.
+> We have released a [draft standard for dft](https://github.com/Deland-Labs/dfinity-fungible-token-standard), this tool is used to support dft issuance.
 
 ## About us
 
-   We are from ICP Deland team. 
+   We are from Deland-Labs team. 
 
    We are building a decentralized exchange based on Dfinity with Open Order Protocol.
 
