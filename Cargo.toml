@@ -1,5 +1,5 @@
 [workspace]
 members = [
-    "src/graphql",
-    "src/issuance_tool"
+    "canisters/graphql",
+    "canisters/issuance_tool"
 ]

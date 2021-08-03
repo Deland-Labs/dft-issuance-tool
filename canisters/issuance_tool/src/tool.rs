@@ -11,9 +11,22 @@ use std::string::String;
 const CYCLES_PER_TOKEN: u64 = 2000000000000;
 static mut INITIALIZED: bool = false;
 static mut OWNER: Principal = Principal::anonymous();
+static mut FEE_TOKEN_ID: Principal = Principal::anonymous();
 
 #[ic_cdk_macros::import(canister = "graphql")]
 struct GraphQLCanister;
+
+fn _only_owner() {
+    unsafe {
+        assert!(OWNER == api::caller(), "caller is not the owner");
+    }
+}
+
+fn _must_initialized() {
+    unsafe {
+        assert!(INITIALIZED == true, "uninitialized");
+    }
+}
 
 #[update(name = "initialize")]
 #[candid_method(update, rename = "initialize")]
@@ -27,6 +40,14 @@ fn initialize() -> bool {
         OWNER = caller();
     }
     true
+}
+
+#[update(name = "setFeeTokenID")]
+#[candid_method(update, rename = "setFeeTokenID")]
+fn set_fee_token_id(token_id: Principal) {
+    _must_initialized();
+    _only_owner();
+    unsafe { FEE_TOKEN_ID = token_id };
 }
 
 #[update(name = "uploadTokenWasm")]
@@ -49,6 +70,8 @@ async fn issue_token(args: IssueTokenArgs) -> Result<IssueResult, String> {
         }
         Some(o) => o,
     };
+
+    //_charge_token_issue_fee(args.subaccount,args.)
 
     let create_args = CreateCanisterArgs {
         cycles: CYCLES_PER_TOKEN,
@@ -105,15 +128,30 @@ async fn graphql_query(query: String, variables: String) -> String {
     return result.0;
 }
 
-fn _only_owner() {
+async fn _charge_token_issue_fee(
+    spender_sub_account: Option<Subaccount>,
+    from: String,
+    to: String,
+    value: u128,
+) {
     unsafe {
-        assert!(OWNER == api::caller(), "not owner");
-    }
-}
-
-fn _must_initialized() {
-    unsafe {
-        assert!(INITIALIZED == true, "uninitialized");
+        let result: Result<(TransferResult,), _> = api::call::call(
+            FEE_TOKEN_ID,
+            "transferFrom",
+            (spender_sub_account, from, to, value),
+        )
+        .await;
+        match result {
+            Ok((tx_res, )) => {
+                match tx_res {
+                    TransferResult::Ok(txid, _) => {}
+                    TransferResult::Err(e) => {
+                        api::trap("charge issue fee failed");
+                    }
+                };
+            }
+            Err(_) => todo!(),
+        }
     }
 }
 

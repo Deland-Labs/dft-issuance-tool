@@ -1,8 +1,11 @@
 use ic_cdk::export::candid::{CandidType, Nat, Principal};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_bytes::{ByteBuf, Bytes};
 use std::fmt;
 
+pub type TransactionId = u128;
+#[derive(CandidType, Clone, Deserialize)]
+pub struct Subaccount(pub [u8; 32]);
 pub struct WalletWASMBytes(pub Option<serde_bytes::ByteBuf>);
 
 impl Default for WalletWASMBytes {
@@ -23,7 +26,7 @@ pub struct CreateCanisterArgs {
     pub cycles: u64,
     pub settings: CanisterSettings,
 }
- 
+
 #[derive(CandidType, Deserialize)]
 pub struct UpdateSettingsArgs {
     pub canister_id: Principal,
@@ -83,4 +86,29 @@ pub struct TokenInfo {
     pub total_supply: u128,
     pub fee: Fee,
     pub timestamp: u64,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, CandidType)]
+#[serde(rename_all = "camelCase")]
+pub enum Error {
+    InvalidSubaccount,
+    InvalidTokenHolder,
+    InvalidSpender,
+    InvalidReceiver,
+    InsufficientBalance,
+    InsufficientAllowance,
+    RejectedByHolder,
+    RejectedByReceiver,
+    CallFailed,
+    NotifyFailed,
+    QuantityTooSmall,
+    Unknown,
+}
+
+#[derive(CandidType, Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TransferResult {
+    //transfer succeed, but call failed & notify failed
+    Ok(TransactionId, Option<Vec<Error>>),
+    Err(Error),
 }

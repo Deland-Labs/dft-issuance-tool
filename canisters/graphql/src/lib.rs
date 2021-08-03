@@ -3,7 +3,7 @@ use sudograph::graphql_database;
 use sudograph::ic_cdk::export::Principal;
 use sudograph::ic_cdk::storage::{stable_save,stable_restore}; 
 
-graphql_database!("src/graphql/src/schema.graphql");
+graphql_database!("canisters/graphql/src/schema.graphql");
 
 static mut OWNER:  Principal =     Principal::anonymous();
 static mut TOOL_CANISTER_ID:  Principal =  Principal::anonymous();

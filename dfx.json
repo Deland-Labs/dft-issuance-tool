@@ -6,7 +6,7 @@
         "cargo build --target wasm32-unknown-unknown --package graphql --release",
         "ic-cdk-optimizer target/wasm32-unknown-unknown/release/graphql.wasm -o target/wasm32-unknown-unknown/release/graphql_opt.wasm"
       ],
-      "candid": "src/graphql/src/graphql.did",
+      "candid": "canisters/graphql/src/graphql.did",
       "wasm": "target/wasm32-unknown-unknown/release/graphql_opt.wasm"
     },
     "issuanceTool": {
@@ -15,7 +15,7 @@
         "cargo build --target wasm32-unknown-unknown --package  issuance_tool --release",
         "ic-cdk-optimizer target/wasm32-unknown-unknown/release/issuance_tool.wasm -o target/wasm32-unknown-unknown/release/issuance_tool_opt.wasm"
       ],
-      "candid": "src/issuance_tool/src/tool.did",
+      "candid": "canisters/issuance_tool/src/tool.did",
       "wasm": "target/wasm32-unknown-unknown/release/issuance_tool_opt.wasm",
       "dependencies": [
         "graphql"
