@@ -1,8 +1,8 @@
 use crate::management_canister::*;
 use crate::types::*;
-use candid::{decode_args, encode_args};
+use candid::encode_args;
 use ic_cdk::api::time;
-use ic_cdk::export::candid::{CandidType, Nat, Principal};
+use ic_cdk::export::candid::{CandidType, Principal};
 use ic_cdk::{api, caller, id, storage};
 
 use candid::candid_method;
@@ -16,18 +16,6 @@ static mut FEE_TOKEN_ID: Principal = Principal::anonymous();
 #[ic_cdk_macros::import(canister = "graphql")]
 struct GraphQLCanister;
 
-fn _only_owner() {
-    unsafe {
-        assert!(OWNER == api::caller(), "caller is not the owner");
-    }
-}
-
-fn _must_initialized() {
-    unsafe {
-        assert!(INITIALIZED == true, "uninitialized");
-    }
-}
-
 #[update(name = "initialize")]
 #[candid_method(update, rename = "initialize")]
 fn initialize() -> bool {
@@ -38,6 +26,8 @@ fn initialize() -> bool {
 
         INITIALIZED = true;
         OWNER = caller();
+
+        api::print("initialized");
     }
     true
 }
@@ -65,10 +55,8 @@ async fn issue_token(args: IssueTokenArgs) -> Result<IssueResult, String> {
     _must_initialized();
     let wallet_bytes = storage::get::<WalletWASMBytes>();
     let wasm_module = match &wallet_bytes.0 {
-        None => {
-            ic_cdk::trap("No wasm module stored.");
-        }
-        Some(o) => o,
+        None => std::include_bytes!("../wasm/dft_rs_opt.wasm").to_vec(),
+        Some(o) => o.to_vec(),
     };
 
     //_charge_token_issue_fee(args.subaccount,args.)
@@ -83,29 +71,49 @@ async fn issue_token(args: IssueTokenArgs) -> Result<IssueResult, String> {
         },
     };
 
+    api::print("start issue token...");
+    let caller = caller();
     let create_result = create_canister_call(create_args).await?;
     let install_args = encode_args((
-        args.subaccount,
-        args.logo,
         args.name.to_string(),
         args.symbol.to_string(),
         args.decimals.clone(),
         args.total_supply.clone(),
-        args.fee.clone(),
     ))
     .expect("Failed to encode arguments.");
 
-    match install_canister(
-        &create_result.canister_id,
-        wasm_module.clone().into_vec(),
-        install_args,
-    )
-    .await
-    {
+    api::print(format!(
+        "new token id : {}",
+        create_result.canister_id.clone().to_string()
+    ));
+
+    match install_canister(&create_result.canister_id, wasm_module, install_args).await {
         Ok(_) => {
+            // update logo
+            match args.logo {
+                Some(v) => {
+                    api::print("update token logo...");
+                    let update_logo_res: Result<(bool,), _> =
+                        api::call::call(create_result.canister_id.clone(), "updateLogo", (v,))
+                            .await;
+                }
+                None => {}
+            };
+
+            api::print("set token fee...");
+            // set fee
+            let set_fee_res: Result<(bool,), _> = api::call::call(
+                create_result.canister_id.clone(),
+                "setFee",
+                (args.fee.clone(),),
+            )
+            .await;
+
+            api::print("set token fee succeed");
+
             unsafe {
                 _save_tokeninfo(TokenInfo {
-                    issuer: caller(),
+                    issuer: caller,
                     token_id: create_result.canister_id.to_string(),
                     name: args.name.to_string(),
                     symbol: args.symbol.to_string(),
@@ -116,15 +124,28 @@ async fn issue_token(args: IssueTokenArgs) -> Result<IssueResult, String> {
                 })
                 .await;
             }
+
+            api::print(format!("callback:{}", create_result.canister_id));
             Ok(create_result)
         }
-        Err(e) => Err(e),
+        Err(e) => {
+            api::print(format!("install token wasm failed. details:{}", e));
+            Err(e)
+        }
     }
 }
 
 #[query(name = "graphql_query")]
 async fn graphql_query(query: String, variables: String) -> String {
     let result = GraphQLCanister::graphql_query_custom(query, variables).await;
+    return result.0;
+}
+
+#[update(name = "graphql_mutation")]
+async fn graphql_mutation(mutation_string: String, variables_json_string: String) -> String {
+    _only_owner();
+    let result =
+        GraphQLCanister::graphql_mutation_custom(mutation_string, variables_json_string).await;
     return result.0;
 }
 
@@ -142,7 +163,7 @@ async fn _charge_token_issue_fee(
         )
         .await;
         match result {
-            Ok((tx_res, )) => {
+            Ok((tx_res,)) => {
                 match tx_res {
                     TransferResult::Ok(txid, _) => {}
                     TransferResult::Err(e) => {
@@ -160,14 +181,15 @@ async fn _save_tokeninfo(token_info: TokenInfo) {
     let muation = format!(
         r#"mutation {{ 
                         createTokenInfo(input: {{ 
-                            token_id:  "{0}",
+                            token_id:"{0}",
                             issuer:"{1}",
                             name:"{2}",
                             symbol:"{3}",
-                            decimals:"{4}",
+                            decimals:{4},
                             total_supply:"{5}",
-                            fee:"{6}",
-                            timestamp:"{7}",
+                            fee_lowest:"{6}",
+                            fee_rate:"{7}",
+                            timestamp:"{8}",
                             }}) 
                             {{ id }} 
                            }}"#,
@@ -177,10 +199,28 @@ async fn _save_tokeninfo(token_info: TokenInfo) {
         token_info.symbol,
         token_info.decimals.to_string(),
         token_info.total_supply.to_string(),
-        token_info.fee.to_string(),
+        token_info.fee.lowest.to_string(),
+        token_info.fee.rate.to_string(),
         token_info.timestamp.to_string(),
     );
+    api::print("saveing tokeninfo ...");
     let result = GraphQLCanister::graphql_mutation_custom(muation, vals).await;
 
     api::print(format!("_save_tokeninfo result:{}", result.0));
+}
+
+fn _only_owner() {
+    unsafe {
+        if OWNER != api::caller() {
+            api::trap("caller is not the owner");
+        }
+    }
+}
+
+fn _must_initialized() {
+    unsafe {
+        if INITIALIZED != true {
+            api::trap("uninitialized");
+        }
+    }
 }

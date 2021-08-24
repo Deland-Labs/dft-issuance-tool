@@ -1,9 +1,22 @@
 type TokenStoreWASMArgs = record {
   wasm_module: vec nat8;
-}
+};
+type Fee = record { rate : nat; lowest : nat };
+type IssueTokenArgs = record {
+  logo: opt vec nat8;
+  name: text;
+  symbol: text;
+  decimals: nat8;
+  total_supply: nat;
+  fee: Fee;
+};
+type IssueResult = record {
+  canister_id: principal;
+};
+type Result =  variant { Err: text; Ok: IssueResult; };
 service:{
   initialize: ()-> (bool);
   uploadTokenWasm: (args:TokenStoreWASMArgs)->();
-  issueToken: (args:TokenStoreWASMArgs)->();
+  issueToken: (args:IssueTokenArgs)->(Result);
   graphql_query: (text, text) -> (text) query;
 }

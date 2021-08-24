@@ -12,6 +12,7 @@ type TokenInfo {
   symbol:String!
   decimals: Int!
   total_supply: String!
-  fee: String!
+  fee_lowest: String!
+  fee_rate: String!
   timestamp: String!
 }

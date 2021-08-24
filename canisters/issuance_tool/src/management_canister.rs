@@ -95,23 +95,5 @@ pub async fn install_canister(
             ))
         }
     };
-
-    // Store wallet wasm
-    let store_args = TokenStoreWASMArgs { wasm_module };
-    match api::call::call(
-        canister_id.clone(),
-        "wallet_store_wallet_wasm",
-        (store_args,),
-    )
-    .await
-    {
-        Ok(x) => x,
-        Err((code, msg)) => {
-            return Err(format!(
-                "An error happened during the call: {}: {}",
-                code as u8, msg
-            ))
-        }
-    };
     Ok(())
 }

@@ -1,7 +1,5 @@
 use ic_cdk::export::candid::{CandidType, Nat, Principal};
 use serde::{Deserialize, Serialize};
-use serde_bytes::{ByteBuf, Bytes};
-use std::fmt;
 
 pub type TransactionId = u128;
 #[derive(CandidType, Clone, Deserialize)]
@@ -48,9 +46,7 @@ pub struct TokenStoreWASMArgs {
 
 #[derive(CandidType, Deserialize)]
 pub struct IssueTokenArgs {
-    pub subaccount: Option<Vec<u8>>,
-    #[serde(with = "serde_bytes")]
-    pub logo: Vec<u8>,
+    pub logo: Option<Vec<u8>>,
     pub name: String,
     pub symbol: String,
     pub decimals: u8,
@@ -59,21 +55,11 @@ pub struct IssueTokenArgs {
 }
 
 // Rate decimals = 8
-// transferFee = amount * rate / 1000000
+// transferFee = cmp::max(lowest,amount * rate / 10^8)
 #[derive(CandidType, Debug, Clone, Deserialize)]
-pub enum Fee {
-    Fixed(u128),
-    RateWithLowestLimit(u128, u8),
-}
-
-impl fmt::Display for Fee {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
-        let s = match &self {
-            Fee::Fixed(_fee) => _fee.to_string(),
-            Fee::RateWithLowestLimit(_fee, rate) => format!("{{lowest:{0},rate:{1}}}", _fee, rate),
-        };
-        write!(f, "{}", s)
-    }
+pub struct Fee {
+    pub lowest: u128,
+    pub rate: u128,
 }
 
 #[derive(CandidType, Deserialize)]

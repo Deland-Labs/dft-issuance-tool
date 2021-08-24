@@ -36,7 +36,7 @@ async fn graphql_query_custom(query: String, variables: String) -> String {
 async fn graphql_mutation_custom(mutation_string: String, variables_json_string: String) -> String {
     unsafe {
         if  TOOL_CANISTER_ID != sudograph::ic_cdk::caller() { 
-            sudograph::ic_cdk::trap("only allow owner");
+            sudograph::ic_cdk::trap("only allow token issue tool call");
          }
     }
     return graphql_mutation(mutation_string, variables_json_string).await;

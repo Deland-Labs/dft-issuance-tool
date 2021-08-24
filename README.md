@@ -11,6 +11,23 @@
 
 > We have released a [draft standard for dft](https://github.com/Deland-Labs/dfinity-fungible-token-standard), this tool is used to support dft issuance.
 
+### How to test？
+
+Linux or Mac
+```
+python -m ensurepip --upgrade
+```
+Windows
+```
+py -m ensurepip --upgrade
+```
+
+```
+pip install invoke
+invoke
+
+```
+
 ## About us
 
    We are from Deland-Labs team. 
