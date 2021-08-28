@@ -25,17 +25,19 @@ def upgrade(c):
 @task(upgrade, default=True)
 def test_tool(c):
     print("\033[0;32;40m testing issue tool...\033[0m")
+    graphql_id = c.run("dfx canister id graphql").stdout.replace("\n", "")
     tool_id = c.run("dfx canister id issuanceTool").stdout.replace("\n", "")
-    c.run("dfx canister call issuanceTool initialize")
+    c.run("dfx canister call issuanceTool initialize '(principal \"" + graphql_id + "\")'")
+    c.run("ic-repl --replica local upload_wasm.sh")
     c.run("dfx canister call graphql set_tool_canister_id '(principal \"" + tool_id + "\")'")
     issue_res = c.run(
-        "dfx canister call issuanceTool issueToken '(record { logo = null ; name = \"Deland Token\" ; symbol = \"DLD\" ;decimals = 18 : nat8; total_supply = 100000000000000000000000000 : nat; fee = record { lowest = 1 : nat ;rate = 0 : nat ;};})'").stdout
+        "dfx canister call issuanceTool issueToken '(record { sub_account = null ; logo = null ; name = \"Deland Token\" ; symbol = \"DLD\" ;decimals = 18 : nat8; total_supply = 100000000000000000000000000 : nat; fee = record { lowest = 1 : nat ;rate = 0 : nat ;};})'").stdout
     # (variant{Ok=record{canister_id=principal"qoctq-giaaa-aaaaa-aaaea-cai"}},)
     tid = issue_res.replace("\n", "").replace(" ", "").replace(
         "(variant{Ok=record{canister_id=principal\"", "").replace(
         "\"}},)", "")
     assert "\"name\":\"Deland Token\",\"symbol\":\"DLD\"" in c.run(
-        "dfx canister call issuanceTool  graphql_query '(\"query { readTokenInfo {id,issuer,token_id,name,symbol,decimals,total_supply,fee_lowest,fee_rate,timestamp} }\", \"{}\")'").stdout
+        "dfx canister call graphql  graphql_query '(\"query { readTokenInfo {id,issuer,token_id,name,symbol,decimals,total_supply,fee_lowest,fee_rate,timestamp} }\", \"{}\")'").stdout
     print("\033[0;32;40m pass issue tool test\033[0m")
 
     print("\033[0;32;40m testing the new token...\033[0m")

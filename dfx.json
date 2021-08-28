@@ -16,10 +16,7 @@
         "ic-cdk-optimizer target/wasm32-unknown-unknown/release/issuance_tool.wasm -o target/wasm32-unknown-unknown/release/issuance_tool_opt.wasm"
       ],
       "candid": "canisters/issuance_tool/src/tool.did",
-      "wasm": "target/wasm32-unknown-unknown/release/issuance_tool_opt.wasm",
-      "dependencies": [
-        "graphql"
-      ]
+      "wasm": "target/wasm32-unknown-unknown/release/issuance_tool_opt.wasm"
     }
   },
   "defaults": {

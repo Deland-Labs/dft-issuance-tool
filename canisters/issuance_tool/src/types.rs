@@ -4,12 +4,17 @@ use serde::{Deserialize, Serialize};
 pub type TransactionId = u128;
 #[derive(CandidType, Clone, Deserialize)]
 pub struct Subaccount(pub [u8; 32]);
-pub struct WalletWASMBytes(pub Option<serde_bytes::ByteBuf>);
 
-impl Default for WalletWASMBytes {
-    fn default() -> Self {
-        WalletWASMBytes(None)
-    }
+#[derive(CandidType, Default, Clone, Deserialize)]
+pub struct WASMBytes {
+    pub token_wasm: Option<Vec<u8>>,
+    pub storage_wasm: Option<Vec<u8>>,
+}
+
+#[derive(CandidType, Deserialize)]
+pub struct StoreWASMArgs {
+    #[serde(with = "serde_bytes")]
+    pub wasm_module: Vec<u8>,
 }
 
 #[derive(CandidType, Clone, Deserialize)]
@@ -39,13 +44,8 @@ pub struct CreateResult {
 pub type IssueResult = CreateResult;
 
 #[derive(CandidType, Deserialize)]
-pub struct TokenStoreWASMArgs {
-    #[serde(with = "serde_bytes")]
-    pub wasm_module: Vec<u8>,
-}
-
-#[derive(CandidType, Deserialize)]
 pub struct IssueTokenArgs {
+    pub sub_account: Option<Subaccount>,
     pub logo: Option<Vec<u8>>,
     pub name: String,
     pub symbol: String,
@@ -74,27 +74,27 @@ pub struct TokenInfo {
     pub timestamp: u64,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, CandidType)]
-#[serde(rename_all = "camelCase")]
-pub enum Error {
-    InvalidSubaccount,
-    InvalidTokenHolder,
-    InvalidSpender,
-    InvalidReceiver,
-    InsufficientBalance,
-    InsufficientAllowance,
-    RejectedByHolder,
-    RejectedByReceiver,
-    CallFailed,
-    NotifyFailed,
-    QuantityTooSmall,
-    Unknown,
+#[derive(CandidType, Debug, Clone, Deserialize, Serialize)]
+pub struct TransferResponse {
+    pub txid: TransactionId,
+    pub error: Option<Vec<String>>,
 }
 
 #[derive(CandidType, Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub enum TransferResult {
     //transfer succeed, but call failed & notify failed
-    Ok(TransactionId, Option<Vec<Error>>),
-    Err(Error),
+    Ok(TransferResponse),
+    Err(String),
+}
+
+/// Until the stable storage works better in the ic-cdk, this does the job just fine.
+#[derive(CandidType, Deserialize)]
+pub struct StableStorage {
+    pub initialized: bool,
+    pub owner: Principal,
+    pub storage_canister_id: Principal,
+    pub fee_token_id: Principal,
+    pub fee: u128,
+    pub token_wasm: Vec<u8>,
+    pub storage_wasm: Vec<u8>,
 }
