@@ -1,0 +1,45 @@
+type ActorError = record { code : nat32; message : text };
+type CreateResult = record { canister_id : principal };
+type Fee = record { rate : nat; minimum : nat };
+type IssueTokenArgs = record {
+  fee : Fee;
+  decimals : nat8;
+  logo : opt vec nat8;
+  name : text;
+  canister_id : principal;
+  sub_account : opt vec nat8;
+  total_supply : nat;
+  symbol : text;
+};
+type Result = variant { Ok : ToolStatus; Err : ActorError };
+type Result_1 = variant { Ok : CreateResult; Err : ActorError };
+type Result_2 = variant { Ok : bool; Err : ActorError };
+type Result_3 = variant { Ok : TokenInfo; Err : ActorError };
+type Result_4 = variant { Ok : vec TokenInfo; Err : ActorError };
+type StoreWASMArgs = record { wasm_module : vec nat8 };
+type TokenInfo = record {
+  fee : Fee;
+  decimals : nat8;
+  tokenId : principal;
+  name : text;
+  totalSupply : nat;
+  issuer : principal;
+  timestamp : nat64;
+  symbol : text;
+};
+type ToolStatus = record {
+  issued_token_count : nat;
+  owner : principal;
+  cycles : nat64;
+  cycles_per_token : nat64;
+};
+service : {
+  getStatus : () -> (Result) query;
+  issueToken : (IssueTokenArgs) -> (Result_1);
+  owner : () -> (principal) query;
+  setCyclesPerToken : (nat64) -> (Result_2);
+  setOwner : (principal) -> (Result_2);
+  tokenOf : (principal) -> (Result_3) query;
+  tokens : (nat64, nat64) -> (Result_4) query;
+  uploadTokenWasm : (StoreWASMArgs) -> (Result_2);
+}

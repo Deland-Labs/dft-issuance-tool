@@ -1,21 +1,17 @@
 {
-  "canisters": {
-    "graphql": {
-      "type": "custom",
-      "build": [
-        "cargo build --target wasm32-unknown-unknown --package graphql --release",
-        "ic-cdk-optimizer target/wasm32-unknown-unknown/release/graphql.wasm -o target/wasm32-unknown-unknown/release/graphql_opt.wasm"
-      ],
-      "candid": "canisters/graphql/src/graphql.did",
-      "wasm": "target/wasm32-unknown-unknown/release/graphql_opt.wasm"
-    },
+  "canisters": {   
     "issuanceTool": {
       "type": "custom",
       "build": [
         "cargo build --target wasm32-unknown-unknown --package  issuance_tool --release",
         "ic-cdk-optimizer target/wasm32-unknown-unknown/release/issuance_tool.wasm -o target/wasm32-unknown-unknown/release/issuance_tool_opt.wasm"
       ],
-      "candid": "canisters/issuance_tool/src/tool.did",
+      "candid": "canisters/issuance_tool/src/actor.did",
+      "wasm": "target/wasm32-unknown-unknown/release/issuance_tool_opt.wasm"
+    },
+    "empty": {
+      "type": "custom",
+      "candid": "canisters/issuance_tool/src/actor.did",
       "wasm": "target/wasm32-unknown-unknown/release/issuance_tool_opt.wasm"
     }
   },

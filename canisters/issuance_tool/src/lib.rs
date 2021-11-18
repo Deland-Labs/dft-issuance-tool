@@ -1,3 +1,4 @@
 mod management_canister;
-pub mod tool;
+pub mod actor;
 mod types;
+mod tool;

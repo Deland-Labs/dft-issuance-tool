@@ -1,384 +1,374 @@
-use crate::management_canister::*;
 use crate::types::*;
-use candid::encode_args;
-use ic_cdk::api::time;
-use ic_cdk::export::candid::Principal;
-use ic_cdk::{api, storage};
+use candid::{CandidType, Deserialize, Principal};
+use std::collections::HashMap;
 
-use candid::candid_method;
-use ic_cdk_macros::*;
-use std::string::String;
-const CYCLES_PER_TOKEN: u64 = 2000_000_000_000;
-static mut INITIALIZED: bool = false;
-static mut OWNER: Principal = Principal::anonymous();
-static mut STORAGE_CANISTER_ID: Principal = Principal::anonymous();
-static mut FEE_TOKEN_ID: Principal = Principal::anonymous();
-static mut FEE: u128 = 0u128;
+pub type TokenInfoMap = HashMap<Principal, TokenInfo>;
 
-#[update(name = "initialize")]
-#[candid_method(update, rename = "initialize")]
-fn initialize(storage_canister_id: Principal) -> bool {
-    if storage_canister_id == Principal::anonymous() {
-        ic_cdk::trap("invalid storage canister id");
-    }
-    unsafe {
-        if INITIALIZED != false {
-            ic_cdk::trap("initialized");
-        }
-
-        INITIALIZED = true;
-        STORAGE_CANISTER_ID = storage_canister_id;
-        OWNER = api::caller();
-
-        api::print("initialized");
-    }
-    true
+#[derive(CandidType, PartialOrd, Eq, PartialEq, Clone, Deserialize, Debug)]
+pub struct TokenInfo {
+    pub issuer: Principal,
+    #[serde(rename = "tokenId")]
+    pub token_id: Principal,
+    pub name: String,
+    pub symbol: String,
+    pub decimals: u8,
+    #[serde(rename = "totalSupply")]
+    pub total_supply: u128,
+    pub fee: Fee,
+    pub timestamp: u64,
 }
 
-#[update(name = "setIssueFee")]
-#[candid_method(update, rename = "setIssueFee")]
-fn set_issue_fee(token_id: Principal, fee: u128) {
-    _must_initialized();
-    _only_owner();
-    unsafe {
-        FEE_TOKEN_ID = token_id;
-        FEE = fee;
-    };
+#[derive(CandidType, Deserialize, PartialOrd, Eq, PartialEq, Clone, Debug)]
+pub struct ToolPayload {
+    pub owner: Principal,
+    pub cycles_per_token: u64,
+    pub token_wasm: Vec<u8>,
+    pub tokens: Vec<(Principal, TokenInfo)>,
 }
 
-#[update(name = "uploadTokenWasm")]
-#[candid_method(update, rename = "uploadTokenWasm")]
-fn upload_token_wasm(args: StoreWASMArgs) {
-    _must_initialized();
-    _only_owner();
-    let token_bytes = storage::get_mut::<WASMBytes>();
-    token_bytes.token_wasm = Some(args.wasm_module);
+#[derive(CandidType, Deserialize)]
+pub struct ToolStatus {
+    pub owner: Principal,
+    pub cycles_per_token: u64,
+    pub cycles: u64,
+    pub issued_token_count: u128,
 }
 
-#[update(name = "uploadTokenStorageWasm")]
-#[candid_method(update, rename = "uploadTokenStorageWasm")]
-fn upload_token_storage_wasm(args: StoreWASMArgs) {
-    _must_initialized();
-    _only_owner();
-    let token_bytes = storage::get_mut::<WASMBytes>();
-    token_bytes.storage_wasm = Some(args.wasm_module);
+pub struct IssuanceTool {
+    pub owner: Principal,
+    pub cycles_per_token: u64,
+    pub token_wasm: Vec<u8>,
+    pub tokens: TokenInfoMap,
 }
 
-#[update(name = "issueToken")]
-#[candid_method(update, rename = "issueToken")]
-async fn issue_token(args: IssueTokenArgs) -> Result<IssueResult, String> {
-    _must_initialized();
-    let caller = api::caller();
-
-    if caller == Principal::anonymous() {
-        api::trap("invalid issuer")
-    }
-
-    api::print(format!("issue token caller is {}", caller.to_text()));
-    let wasm_bytes = storage::get::<WASMBytes>();
-    let wasm_module = match &wasm_bytes.token_wasm {
-        None => return Err("invalid token wasm module".to_string()), //std::include_bytes!("../wasm/dft_rs_opt.wasm").to_vec(),
-        Some(o) => o.clone(),
-    };
-    unsafe {
-        if FEE_TOKEN_ID != Principal::anonymous() && FEE > 0 {
-            _charge_token_issue_fee(
-                args.sub_account.clone(),
-                caller.to_text(),
-                api::id().to_text(),
-                FEE,
-            )
-            .await;
+impl IssuanceTool {
+    pub fn new() -> Self {
+        IssuanceTool {
+            owner: Principal::anonymous(),
+            cycles_per_token: 3000_000_000_000, // 3 T Cycles
+            token_wasm: Vec::new(),
+            tokens: TokenInfoMap::new(),
         }
     }
 
-    let create_args = CreateCanisterArgs {
-        cycles: CYCLES_PER_TOKEN,
-        settings: CanisterSettings {
-            controllers: Some(vec![caller.clone(), api::id()]),
-            compute_allocation: None,
-            memory_allocation: None,
-            freezing_threshold: None,
-        },
-    };
+    // check if the caller is anonymous
+    pub fn not_allow_anonymous(&self, caller: &Principal) -> CommonResult<()> {
+        if caller == &Principal::anonymous() {
+            return Err(ToolError::NotAllowAnonymous);
+        }
+        Ok(())
+    }
 
-    api::print("start issue token...");
-    let create_result = create_canister_call(create_args).await?;
-    let install_args = encode_args((
-        args.sub_account,
-        args.logo,
-        args.name.to_string(),
-        args.symbol.to_string(),
-        args.decimals.clone(),
-        args.total_supply.clone(),
-        args.fee.clone(),
-        Some(caller.clone()),
-    ))
-    .expect("Failed to encode arguments.");
+    // check if the caller is the owner
+    pub fn only_owner(&self, caller: &Principal) -> CommonResult<()> {
+        self.not_allow_anonymous(caller)?;
+        if &self.owner != caller {
+            return Err(ToolError::OnlyOwnerAllowCallIt);
+        }
+        Ok(())
+    }
 
-    let token_id = create_result.canister_id.clone();
-    api::print(format!("new token id : {}", token_id.to_string()));
+    // get cycles per token
+    pub fn cycles_per_token(&self) -> u64 {
+        self.cycles_per_token
+    }
+    // get owner
+    pub fn owner(&self) -> Principal {
+        self.owner.clone()
+    }
+    // set owner
+    pub fn set_owner(&mut self, caller: &Principal, owner: Principal) -> CommonResult<()> {
+        self.not_allow_anonymous(caller)?;
+        if self.owner != Principal::anonymous() {
+            self.only_owner(caller)?;
+        }
+        self.owner = owner;
+        Ok(())
+    }
 
-    match install_canister(&create_result.canister_id, wasm_module, install_args).await {
-        Ok(_) => {
-            let create_storage_res =
-                create_token_storage_canister(caller.clone(), create_result.canister_id.clone())
-                    .await;
+    // set cycles per token
+    pub fn set_cycles_per_token(
+        &mut self,
+        caller: &Principal,
+        cycles_per_token: u64,
+    ) -> CommonResult<bool> {
+        self.only_owner(caller)?;
+        self.cycles_per_token = cycles_per_token;
+        Ok(true)
+    }
 
-            if let Ok(stroage_canister_id) = create_storage_res {
-                api::print("set token tx storage...");
-                let _set_storage_res: Result<(bool,), _> = api::call::call(
-                    token_id.clone(),
-                    "setStorageCanisterID",
-                    (stroage_canister_id.clone(),),
-                )
-                .await;
-                match _set_storage_res {
-                    Ok(_) => api::print("set token storage succeed"),
-                    Err(err) => api::print(format!("set token storage failed{}", err.1)),
-                }
+    // get tokens count
+    pub fn get_token_count(&self) -> CommonResult<u128> {
+        Ok(self.tokens.len() as u128)
+    }
+
+    // get token by id
+    pub fn get_token_by_id(&self, token_id: &Principal) -> CommonResult<TokenInfo> {
+        match self.tokens.get(token_id) {
+            Some(token) => Ok(token.clone()),
+            None => Err(ToolError::TokenNotFound),
+        }
+    }
+
+    // get token with page parameters
+    //  start_index: start index of the token list
+    //  page_size: page size of the token list
+    pub fn get_tokens(
+        &self,
+        start_index: usize,
+        page_size: usize,
+    ) -> CommonResult<Vec<TokenInfo>> {
+        // max page size is 200
+        let page_size = if page_size > 200 { 200 } else { page_size };
+        let mut token_list = Vec::new();
+        let mut index = 0;
+        for token_info in self.tokens.values() {
+            if index >= start_index as usize {
+                token_list.push(token_info.clone());
             }
-
-            unsafe {
-                api::print(format!("save token caller is {}", caller.to_text()));
-                _save_tokeninfo(TokenInfo {
-                    issuer: caller.clone(),
-                    token_id: create_result.canister_id.to_string(),
-                    name: args.name.to_string(),
-                    symbol: args.symbol.to_string(),
-                    decimals: args.decimals,
-                    total_supply: args.total_supply,
-                    fee: args.fee.clone(),
-                    timestamp: time(),
-                })
-                .await;
-            }
-
-            api::print(format!("callback:{}", create_result.canister_id));
-            Ok(create_result)
-        }
-        Err(e) => {
-            api::print(format!("install token wasm failed. details:{}", e));
-            Err(e)
-        }
-    }
-}
-
-async fn create_token_storage_canister(
-    caller: Principal,
-    token_id: Principal,
-) -> Result<Principal, String> {
-    let wasm_bytes = storage::get::<WASMBytes>();
-    let wasm_module = match &wasm_bytes.storage_wasm {
-        Some(v) => v.clone(),
-        None => return Err("invalid token storage wasm module".to_string()), //std::include_bytes!("../wasm/graphql_opt.wasm").to_vec();
-    };
-
-    let create_args = CreateCanisterArgs {
-        cycles: CYCLES_PER_TOKEN,
-        settings: CanisterSettings {
-            controllers: Some(vec![caller, api::id()]),
-            compute_allocation: None,
-            memory_allocation: None,
-            freezing_threshold: None,
-        },
-    };
-
-    api::print("creating token storage...");
-    let create_result = create_canister_call(create_args).await?;
-    let install_args = encode_args((token_id.clone(),)).expect("Failed to encode arguments.");
-
-    api::print(format!(
-        "token storage canister id : {}",
-        create_result.canister_id.clone().to_string()
-    ));
-    match install_canister(&create_result.canister_id, wasm_module, install_args).await {
-        Ok(_) => {
-            // set storage
-            let _set_storage_res: Result<(bool,), _> = api::call::call(
-                token_id,
-                "setStorageCanisterID",
-                (create_result.canister_id,),
-            )
-            .await;
-            Ok(create_result.canister_id.clone())
-        }
-        Err(e) => {
-            api::print(format!(
-                "install token storage canister failed. details:{}",
-                e
-            ));
-            Err(e)
-        }
-    }
-}
-
-#[query(name = "toolGraph")]
-async fn token_graphql() -> Principal {
-    unsafe { STORAGE_CANISTER_ID }
-}
-
-#[update(name = "graphql_mutation")]
-async fn graphql_mutation(mutation_string: String, variables_json_string: String) -> String {
-    _only_owner();
-    unsafe {
-        //call storage canister
-        let _storage_res: Result<(String,), _> = api::call::call(
-            STORAGE_CANISTER_ID,
-            "graphql_mutation_custom",
-            (mutation_string, variables_json_string),
-        )
-        .await;
-
-        match _storage_res {
-            Ok((res,)) => res,
-            Err((_, emsg)) => {
-                api::print(format!("graphql_mutation failed:{}", emsg));
-                emsg
+            index += 1;
+            if index >= (start_index + page_size) as usize {
+                break;
             }
         }
+        Ok(token_list)
     }
-}
 
-async fn _charge_token_issue_fee(
-    spender_sub_account: Option<Subaccount>,
-    from: String,
-    to: String,
-    value: u128,
-) {
-    unsafe {
-        let result: Result<(TransferResult,), _> = api::call::call(
-            FEE_TOKEN_ID,
-            "transferFrom",
-            (spender_sub_account, from, to, value),
-        )
-        .await;
-        match result {
-            Ok((tx_res,)) => {
-                match tx_res {
-                    TransferResult::Ok(_) => {
-                        api::print(format!("_charge_token_issue_fee:{}", value));
-                    }
-                    TransferResult::Err(e) => {
-                        api::trap(format!("charge issue fee failed,details:{}", e).as_str());
-                    }
-                };
-            }
-            Err(_) => api::trap("charge issue fee failed"),
+    // add token
+    pub fn add_token(&mut self, caller: &Principal, token_info: TokenInfo) -> CommonResult<()> {
+        self.only_owner(caller)?;
+        self.tokens.insert(token_info.token_id, token_info);
+        Ok(())
+    }
+
+    // get token wasm
+    pub fn get_token_wasm(&self) -> CommonResult<Vec<u8>> {
+        // check wasm length
+        if self.token_wasm.len() == 0 {
+            return Err(ToolError::InvalidTokenWasmModule);
+        } else {
+            Ok(self.token_wasm.clone())
         }
     }
-}
 
-async fn _save_tokeninfo(token_info: TokenInfo) {
-    let vals = "{}".to_string();
-    let muation = format!(
-        r#"mutation {{ 
-                        createTokenInfo(input: {{ 
-                            token_id:"{0}",
-                            issuer:"{1}",
-                            name:"{2}",
-                            symbol:"{3}",
-                            decimals:{4},
-                            total_supply:"{5}",
-                            fee_lowest:"{6}",
-                            fee_rate:"{7}",
-                            timestamp:"{8}",
-                            }}) 
-                            {{ id }} 
-                           }}"#,
-        token_info.token_id,
-        token_info.issuer.to_string(),
-        token_info.name,
-        token_info.symbol,
-        token_info.decimals.to_string(),
-        token_info.total_supply.to_string(),
-        token_info.fee.lowest.to_string(),
-        token_info.fee.rate.to_string(),
-        token_info.timestamp.to_string(),
-    );
-    api::print("saving tokeninfo ...");
-    unsafe {
-        let _storage_res: Result<(String,), _> = api::call::call(
-            STORAGE_CANISTER_ID,
-            "graphql_mutation_custom",
-            (muation, vals),
-        )
-        .await;
-        match _storage_res {
-            Ok(res) => api::print(format!("_save_tokeninfo result:{}", res.0)),
-            Err((code, emsg)) => api::print(format!("_save_tokeninfo failed:{}", emsg)),
+    // set token wasm
+    pub fn set_token_wasm(&mut self, caller: &Principal, token_wasm: Vec<u8>) -> CommonResult<()> {
+        self.only_owner(caller)?;
+        self.token_wasm = token_wasm;
+        Ok(())
+    }
+
+    // convert to ToolPayload
+    pub fn to_payload(&self) -> ToolPayload {
+        ToolPayload {
+            owner: self.owner.clone(),
+            cycles_per_token: self.cycles_per_token,
+            token_wasm: self.token_wasm.clone(),
+            tokens: self
+                .tokens
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
         }
+    }
+
+    // get ToolStatus
+    pub fn get_status(&self) -> ToolStatus {
+        ToolStatus {
+            owner: self.owner.clone(),
+            cycles_per_token: self.cycles_per_token,
+            cycles: 0,
+            issued_token_count: self.get_token_count().unwrap(),
+        }
+    }
+
+    // load from ToolPayload
+    pub fn load_from_payload(&mut self, payload: ToolPayload) {
+        self.owner = payload.owner;
+        self.cycles_per_token = payload.cycles_per_token;
+        self.token_wasm = payload.token_wasm;
+        self.tokens = payload.tokens.into_iter().map(|(k, v)| (k, v)).collect();
     }
 }
 
-fn _only_owner() {
-    unsafe {
-        if OWNER != api::caller() {
-            api::trap(
-                format!(
-                    "caller is not the owner,caller:{},owner:{}",
-                    api::caller().to_text(),
-                    OWNER.to_text()
-                )
-                .as_str(),
-            );
-        }
-    }
-}
+//  IssuanceTool tests
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use candid::Nat;
+    use ic_types::Principal;
 
-fn _must_initialized() {
-    unsafe {
-        if INITIALIZED != true {
-            api::trap("uninitialized");
-        }
-    }
-}
+    // test get/set owner
+    #[test]
+    fn test_owner() {
+        let mut tool = IssuanceTool::new();
+        let owner =
+            Principal::from_text("qupnt-ohzy3-npshw-oba2m-sttkq-tyawc-vufye-u5fbz-zb6yu-conr3-tqe")
+                .unwrap();
 
-#[pre_upgrade]
-fn pre_upgrade() {
-    unsafe {
-        let wasm_bytes = storage::get::<WASMBytes>();
-        let token_wasm = match &wasm_bytes.token_wasm {
-            Some(t) => t.clone(),
-            None => [].to_vec(),
+        // set owner by call anonymous
+        let result = tool.set_owner(&Principal::anonymous(), owner.clone());
+        // check result is err
+        assert!(result.is_err());
+        // check error code is NotAllowAnonymous
+        assert_eq!(result.unwrap_err(), ToolError::NotAllowAnonymous);
+        // check owner is anonymous
+        assert_eq!(tool.owner(), Principal::anonymous());
+
+        // set owner by owner
+        let result = tool.set_owner(&owner, owner.clone());
+        // check result is ok
+        assert!(result.is_ok());
+        // check owner is owner
+        assert_eq!(tool.owner(), owner);
+        let new_owner =
+            Principal::from_text("czjfo-ddpvm-6sibl-6zbox-ee5zq-bx3hc-e336t-s6pka-dupmy-wcxqi-fae")
+                .unwrap();
+        // set owner to new_owner
+        let result = tool.set_owner(&new_owner, new_owner.clone());
+        // check result is error
+        assert!(result.is_err());
+        // the error code is OnlyOwnerAllowCallIt
+        assert_eq!(result.unwrap_err(), ToolError::OnlyOwnerAllowCallIt);
+
+        // set owner to new_owner
+        let result = tool.set_owner(&owner, new_owner.clone());
+        // check result is ok
+        assert!(result.is_ok());
+        // check owner is new_owner
+        assert_eq!(tool.owner(), new_owner);
+
+        // check default value of cycles_per_token
+        assert_eq!(tool.cycles_per_token(), 3000_000_000_000);
+    }
+
+    // test set cycles per token
+    #[test]
+    fn test_cycles_per_token() {
+        let mut tool = IssuanceTool::new();
+        let owner =
+            Principal::from_text("qupnt-ohzy3-npshw-oba2m-sttkq-tyawc-vufye-u5fbz-zb6yu-conr3-tqe")
+                .unwrap();
+        // set cycles by anonymous will fail
+        let result = tool.set_cycles_per_token(&Principal::anonymous(), 1);
+        // check result is err
+        assert!(result.is_err());
+        // check error code is NotAllowAnonymous
+        assert_eq!(result.unwrap_err(), ToolError::NotAllowAnonymous);
+
+        // set cycles by not owner will fail
+        let new_owner =
+            Principal::from_text("czjfo-ddpvm-6sibl-6zbox-ee5zq-bx3hc-e336t-s6pka-dupmy-wcxqi-fae")
+                .unwrap();
+        let result = tool.set_cycles_per_token(&new_owner, 1);
+        // check result is err
+        assert!(result.is_err());
+        // check error code is OnlyOwnerAllowCallIt
+        assert_eq!(result.unwrap_err(), ToolError::OnlyOwnerAllowCallIt);
+        let result = tool.set_owner(&owner, owner.clone());
+        assert!(result.is_ok());
+        let result = tool.set_cycles_per_token(&owner, 100);
+        assert!(result.is_ok());
+        assert_eq!(tool.cycles_per_token, 100);
+    }
+
+    // test add token
+    #[test]
+    fn test_add_token() {
+        let mut tool = IssuanceTool::new();
+        let owner =
+            Principal::from_text("qupnt-ohzy3-npshw-oba2m-sttkq-tyawc-vufye-u5fbz-zb6yu-conr3-tqe")
+                .unwrap();
+        let new_owner =
+            Principal::from_text("czjfo-ddpvm-6sibl-6zbox-ee5zq-bx3hc-e336t-s6pka-dupmy-wcxqi-fae")
+                .unwrap();
+        let result = tool.set_owner(&owner, owner.clone());
+        assert!(result.is_ok());
+        let token_id = Principal::from_text("g7cye-cyaaa-aaaak-aaa5a-cai").unwrap();
+
+        // build a instance of TokenInfo
+
+        let token_info = TokenInfo {
+            issuer: owner.clone(),
+            token_id: token_id.clone(),
+            name: "test".to_string(),
+            symbol: "TST".to_string(),
+            decimals: 18,
+            total_supply: 100,
+            fee: Fee {
+                minimum: Nat::from(1),
+                rate: Nat::from(10000),
+            },
+            timestamp: 0,
         };
-        let storage_wasm = match &wasm_bytes.storage_wasm {
-            Some(t) => t.clone(),
-            None => [].to_vec(),
-        };
-        let stable = StableStorage {
-            initialized: INITIALIZED,
-            owner: OWNER,
-            storage_canister_id: STORAGE_CANISTER_ID,
-            fee_token_id: FEE_TOKEN_ID,
-            fee: FEE,
-            token_wasm,
-            storage_wasm,
-        };
-        match storage::stable_save((stable,)) {
-            Ok(_) => (),
-            Err(candid_err) => {
-                ic_cdk::trap(&format!(
-                    "An error occurred when saving to stable memory (pre_upgrade): {}",
-                    candid_err
-                ));
-            }
-        };
+        let result = tool.add_token(&owner, token_info.clone());
+        assert!(result.is_ok());
+        assert_eq!(tool.tokens.len(), 1);
+        // get token by id, then check token info
+        let token = tool.get_token_by_id(&token_id).unwrap();
+        assert_eq!(token.token_id, token_id);
+        assert_eq!(token.name, "test".to_string());
+        assert_eq!(token.symbol, "TST".to_string());
+        assert_eq!(token.decimals, 18);
+        assert_eq!(token.total_supply, 100);
+        assert_eq!(token.fee.minimum, Nat::from(1));
+        assert_eq!(token.fee.rate, Nat::from(10000));
+        assert_eq!(token.timestamp, 0);
+        assert_eq!(token.issuer, owner);
+        // add token by not owner will fail
+        let result = tool.add_token(&new_owner, token_info.clone());
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), ToolError::OnlyOwnerAllowCallIt);
     }
-}
 
-#[post_upgrade]
-fn post_upgrade() {
-    if let Ok((storage,)) = storage::stable_restore::<(StableStorage,)>() {
-        unsafe {
-            INITIALIZED = storage.initialized;
-            let wasm_bytes = storage::get_mut::<WASMBytes>();
-            if storage.token_wasm.len() > 0 {
-                wasm_bytes.token_wasm = Some(storage.token_wasm);
-            }
-            if storage.storage_wasm.len() > 0 {
-                wasm_bytes.storage_wasm = Some(storage.storage_wasm);
-            }
-        }
+    // test get set token wasm
+    #[test]
+    fn test_get_set_token_wasm() {
+        let mut tool = IssuanceTool::new();
+        let owner =
+            Principal::from_text("qupnt-ohzy3-npshw-oba2m-sttkq-tyawc-vufye-u5fbz-zb6yu-conr3-tqe")
+                .unwrap();
+        let result = tool.set_owner(&owner, owner.clone());
+        assert!(result.is_ok());
+        // set token wasm, check result is ok
+        let token_wasm = vec![1, 2, 3, 4, 5];
+        let result = tool.set_token_wasm(&owner, token_wasm.clone());
+        // check result is ok
+        assert!(result.is_ok());
+        // get token wasm, check the wasm is equal token_wasm
+        let token_wasm2 = tool.get_token_wasm().unwrap();
+        assert_eq!(token_wasm, token_wasm2);
+    }
+
+    // test to payload / load from payload
+    #[test]
+    fn test_payload() {
+        let mut tool = IssuanceTool::new();
+        let owner =
+            Principal::from_text("qupnt-ohzy3-npshw-oba2m-sttkq-tyawc-vufye-u5fbz-zb6yu-conr3-tqe")
+                .unwrap();
+        let token_id = Principal::from_text("g7cye-cyaaa-aaaak-aaa5a-cai").unwrap();
+        let token_info = TokenInfo {
+            issuer: owner.clone(),
+            token_id: token_id.clone(),
+            name: "test".to_string(),
+            symbol: "TST".to_string(),
+            decimals: 18,
+            total_supply: 100,
+            fee: Fee {
+                minimum: Nat::from(1),
+                rate: Nat::from(10000),
+            },
+            timestamp: 0,
+        };
+        let result = tool.set_owner(&owner, owner.clone());
+        assert!(result.is_ok());
+        let result = tool.add_token(&owner, token_info.clone());
+        assert!(result.is_ok());
+        let payload = tool.to_payload();
+        tool.load_from_payload(payload.clone());
+        let payload2 = tool.to_payload();
+        // check payload is equal
+        assert_eq!(payload, payload2);
     }
 }
